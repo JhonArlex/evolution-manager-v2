@@ -26,6 +26,10 @@ services:
       - DATABASE_CONNECTION_URI=postgresql://postgres:password@postgres:5432/evolution
       - AUTHENTICATION_API_KEY=your-api-key-here
       - SERVER_PORT=8080
+      # Redis: por defecto la API usa localhost:6379; en Docker el host es el servicio "redis"
+      - CACHE_REDIS_ENABLED=true
+      - CACHE_REDIS_URI=redis://redis:6379/0
+      - CACHE_REDIS_PREFIX_KEY=evolution
     depends_on:
       - postgres
       - redis
