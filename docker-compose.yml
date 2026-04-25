@@ -30,6 +30,10 @@ services:
       - CACHE_REDIS_ENABLED=true
       - CACHE_REDIS_URI=redis://redis:6379/0
       - CACHE_REDIS_PREFIX_KEY=evolution
+      # WebSocket (Socket.io): sin esto el cliente no puede usar wss://; en HTTPS configura también el proxy (Upgrade)
+      - WEBSOCKET_ENABLED=true
+      # Por defecto la API solo permite localhost; en Docker/producción suele hacer falta ampliar (o *).
+      - WEBSOCKET_ALLOWED_HOSTS=*
     depends_on:
       - postgres
       - redis
