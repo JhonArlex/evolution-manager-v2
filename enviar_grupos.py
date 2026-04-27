@@ -2,22 +2,48 @@
 """
 Envía el mensaje (texto + imágenes) a grupos de WhatsApp vía Evolution API.
 
+Rutas por defecto (si no defines DATA_DIR / MSG_DIR / etc.):
+  <carpeta del script>/data/mensaje/msg.txt, *.jpg
+  <carpeta del script>/data/grupos_chinatowm.csv
+  <carpeta del script>/data/envio_log.csv
+  En Docker con el .py en /app → todo bajo /app/data/.
+
 Modos de uso:
   python3 enviar_grupos.py              → envía a TODOS los grupos del CSV
   python3 enviar_grupos.py --desde 10  → reanuda desde la fila 10 (útil si se interrumpió)
 """
 
-import csv, base64, time, sys, requests
+import csv, base64, time, sys, os, requests
 from pathlib import Path
 
-# ── Configuración ──────────────────────────────────────────────────────────────
-API_URL      = "https://whatsapp-api.jhonocampo.com"
-API_KEY      = "f6c84b78359e1990412b8aa2f5b36ebd1b864615793640f7cc9c3a49ecddb92c"
-INSTANCE     = "Chinatowm"
-MSG_DIR      = Path("/mnt/disco960/proyectos/whatsapp/mensaje")
-CSV_FILE     = Path("/home/jhonandmary/grupos_chinatowm.csv")
-LOG_FILE     = Path("/mnt/disco960/proyectos/whatsapp/envio_log.csv")
-DELAY_SEG    = 8   # segundos entre grupos para evitar bloqueos
+# ── Configuración (entorno) ────────────────────────────────────────────────────
+# En Docker: monta un volumen en DATA_DIR (p. ej. -v /ruta/host:/app/data) y coloca
+#   /app/data/mensaje/msg.txt, imágenes, /app/data/grupos_chinatowm.csv
+#
+# Variables:
+#   DATA_DIR   — raíz de datos (defecto: /app/data en contenedor, o cwd ./data al desarrollar)
+#   MSG_DIR    — carpeta con msg.txt e imágenes (defecto: $DATA_DIR/mensaje)
+#   CSV_FILE   — CSV de grupos (defecto: $DATA_DIR/grupos_chinatowm.csv)
+#   LOG_FILE   — log de envíos (defecto: $DATA_DIR/envio_log.csv)
+#   API_URL, API_KEY, INSTANCE, DELAY_SEG
+
+def _data_dir() -> Path:
+    d = os.environ.get("DATA_DIR", "").strip()
+    if d:
+        return Path(d)
+    # Con el .py en /app/enviar_grupos.py → /app/data (monta el volumen ahí)
+    return Path(__file__).resolve().parent / "data"
+
+
+DATA_DIR = _data_dir()
+MSG_DIR = Path(os.environ.get("MSG_DIR", str(DATA_DIR / "mensaje")))
+CSV_FILE = Path(os.environ.get("CSV_FILE", str(DATA_DIR / "grupos_chinatowm.csv")))
+LOG_FILE = Path(os.environ.get("LOG_FILE", str(DATA_DIR / "envio_log.csv")))
+
+API_URL = os.environ.get("API_URL", "https://whatsapp-api.jhonocampo.com").rstrip("/")
+API_KEY = (os.environ.get("API_KEY") or os.environ.get("EVOLUTION_API_KEY") or "").strip()
+INSTANCE = os.environ.get("INSTANCE", "Chinatowm")
+DELAY_SEG = int(os.environ.get("DELAY_SEG", "8"))
 # ──────────────────────────────────────────────────────────────────────────────
 
 HEADERS = {"apikey": API_KEY, "Content-Type": "application/json"}
@@ -58,15 +84,35 @@ def registrar_log(fila, gid, nombre, estado):
 
 
 def main():
+    if not API_KEY:
+        print("Falta API_KEY o EVOLUTION_API_KEY en el entorno.", file=sys.stderr)
+        sys.exit(1)
+
     desde = 1
     if "--desde" in sys.argv:
         idx = sys.argv.index("--desde")
         desde = int(sys.argv[idx + 1])
 
-    texto = (MSG_DIR / "msg.txt").read_text(encoding="utf-8").strip()
+    msg_path = MSG_DIR / "msg.txt"
+    if not MSG_DIR.is_dir():
+        print(f"No existe la carpeta de mensaje: {MSG_DIR}", file=sys.stderr)
+        print("Ajusta DATA_DIR o MSG_DIR. En Docker: monta volúmenes bajo /app/data/mensaje", file=sys.stderr)
+        sys.exit(1)
+    if not msg_path.is_file():
+        print(f"No se encuentra {msg_path}", file=sys.stderr)
+        sys.exit(1)
+    if not CSV_FILE.is_file():
+        print(f"No se encuentra el CSV: {CSV_FILE}", file=sys.stderr)
+        sys.exit(1)
+
+    texto = msg_path.read_text(encoding="utf-8").strip()
     imagenes = sorted(MSG_DIR.glob("*.jpeg")) + sorted(MSG_DIR.glob("*.jpg"))
+    if not imagenes:
+        print(f"No hay .jpg/.jpeg en {MSG_DIR}", file=sys.stderr)
+        sys.exit(1)
     grupos   = cargar_grupos(desde)
 
+    print(f"DATA_DIR={DATA_DIR} | MSG_DIR={MSG_DIR}")
     print(f"Mensaje: {len(texto)} caracteres | Imágenes: {len(imagenes)} | Grupos: {len(grupos)}")
     print(f"Tiempo estimado: ~{len(grupos) * DELAY_SEG // 60} min\n")
 
