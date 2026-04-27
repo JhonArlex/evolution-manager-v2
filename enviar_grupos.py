@@ -2,11 +2,10 @@
 """
 Envía el mensaje (texto + imágenes) a grupos de WhatsApp vía Evolution API.
 
-Rutas por defecto (si no defines DATA_DIR / MSG_DIR / etc.):
-  <carpeta del script>/data/mensaje/msg.txt, *.jpg
-  <carpeta del script>/data/grupos_chinatowm.csv
-  <carpeta del script>/data/envio_log.csv
-  En Docker con el .py en /app → todo bajo /app/data/.
+Rutas (DATA_DIR = carpeta del script /data, en Docker /app/data):
+  msg.txt e imágenes: DATA_DIR/mensaje/  ó  sueltas en DATA_DIR/ (cualquiera)
+  grupos: DATA_DIR/grupos_chinatowm.csv
+  log:   DATA_DIR/envio_log.csv
 
 Modos de uso:
   python3 enviar_grupos.py              → envía a TODOS los grupos del CSV
@@ -17,12 +16,13 @@ import csv, base64, time, sys, os, requests
 from pathlib import Path
 
 # ── Configuración (entorno) ────────────────────────────────────────────────────
-# En Docker: monta un volumen en DATA_DIR (p. ej. -v /ruta/host:/app/data) y coloca
-#   /app/data/mensaje/msg.txt, imágenes, /app/data/grupos_chinatowm.csv
+# En Docker: monta un volumen en DATA_DIR (p. ej. -v /ruta/host:/app/data).
+#   Opción A — plano: /app/data/msg.txt, *.jpg, grupos_chinatowm.csv
+#   Opción B — subcarpeta: /app/data/mensaje/msg.txt e imágenes
 #
 # Variables:
-#   DATA_DIR   — raíz de datos (defecto: /app/data en contenedor, o cwd ./data al desarrollar)
-#   MSG_DIR    — carpeta con msg.txt e imágenes (defecto: $DATA_DIR/mensaje)
+#   DATA_DIR   — raíz de datos (defecto: <script>/data → en Docker /app/data)
+#   MSG_DIR    — (opcional) carpeta con msg.txt; si no se pone, se detecta automáticamente
 #   CSV_FILE   — CSV de grupos (defecto: $DATA_DIR/grupos_chinatowm.csv)
 #   LOG_FILE   — log de envíos (defecto: $DATA_DIR/envio_log.csv)
 #   API_URL, API_KEY, INSTANCE, DELAY_SEG
@@ -36,7 +36,6 @@ def _data_dir() -> Path:
 
 
 DATA_DIR = _data_dir()
-MSG_DIR = Path(os.environ.get("MSG_DIR", str(DATA_DIR / "mensaje")))
 CSV_FILE = Path(os.environ.get("CSV_FILE", str(DATA_DIR / "grupos_chinatowm.csv")))
 LOG_FILE = Path(os.environ.get("LOG_FILE", str(DATA_DIR / "envio_log.csv")))
 
@@ -47,6 +46,36 @@ DELAY_SEG = int(os.environ.get("DELAY_SEG", "8"))
 # ──────────────────────────────────────────────────────────────────────────────
 
 HEADERS = {"apikey": API_KEY, "Content-Type": "application/json"}
+
+
+def resolve_msg_dir() -> Path:
+    """
+    Carpeta donde están msg.txt y las imágenes.
+    Si MSG_DIR está en el entorno, se usa tal cual.
+    Si no: prefiere DATA_DIR/mensaje si existe; si no, DATA_DIR si ahí está msg.txt (layout plano).
+    """
+    explicit = os.environ.get("MSG_DIR", "").strip()
+    if explicit:
+        p = Path(explicit)
+        if p.is_dir():
+            return p
+        print(f"MSG_DIR no es una carpeta existente: {p}", file=sys.stderr)
+        sys.exit(1)
+
+    nested = DATA_DIR / "mensaje"
+    if nested.is_dir():
+        return nested
+    if (DATA_DIR / "msg.txt").is_file():
+        return DATA_DIR
+
+    print(
+        f"No hay mensaje en {nested} ni msg.txt en {DATA_DIR}.\n"
+        f"  • Monta el volumen con msg.txt (y jpg) directamente bajo: {DATA_DIR}\n"
+        f"  • O crea la subcarpeta mensaje/ y coloca ahí msg.txt e imágenes\n"
+        f"  • O define MSG_DIR con la ruta correcta",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 
 def cargar_grupos(desde=1):
@@ -93,11 +122,8 @@ def main():
         idx = sys.argv.index("--desde")
         desde = int(sys.argv[idx + 1])
 
-    msg_path = MSG_DIR / "msg.txt"
-    if not MSG_DIR.is_dir():
-        print(f"No existe la carpeta de mensaje: {MSG_DIR}", file=sys.stderr)
-        print("Ajusta DATA_DIR o MSG_DIR. En Docker: monta volúmenes bajo /app/data/mensaje", file=sys.stderr)
-        sys.exit(1)
+    msg_dir = resolve_msg_dir()
+    msg_path = msg_dir / "msg.txt"
     if not msg_path.is_file():
         print(f"No se encuentra {msg_path}", file=sys.stderr)
         sys.exit(1)
@@ -106,13 +132,13 @@ def main():
         sys.exit(1)
 
     texto = msg_path.read_text(encoding="utf-8").strip()
-    imagenes = sorted(MSG_DIR.glob("*.jpeg")) + sorted(MSG_DIR.glob("*.jpg"))
+    imagenes = sorted(msg_dir.glob("*.jpeg")) + sorted(msg_dir.glob("*.jpg"))
     if not imagenes:
-        print(f"No hay .jpg/.jpeg en {MSG_DIR}", file=sys.stderr)
+        print(f"No hay .jpg/.jpeg en {msg_dir}", file=sys.stderr)
         sys.exit(1)
     grupos   = cargar_grupos(desde)
 
-    print(f"DATA_DIR={DATA_DIR} | MSG_DIR={MSG_DIR}")
+    print(f"DATA_DIR={DATA_DIR} | msg_dir (mensaje)={msg_dir}")
     print(f"Mensaje: {len(texto)} caracteres | Imágenes: {len(imagenes)} | Grupos: {len(grupos)}")
     print(f"Tiempo estimado: ~{len(grupos) * DELAY_SEG // 60} min\n")
 
