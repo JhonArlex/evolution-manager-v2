@@ -6,11 +6,11 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "3050:80"
+      - "${MANAGER_PORT:-3050}:80"
     container_name: evolution-manager-v2
     restart: unless-stopped
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=${NODE_ENV:-production}
     networks:
       - evolution-network
 
@@ -18,40 +18,24 @@ services:
   evolution-api:
     image: evoapicloud/evolution-api:latest
     ports:
-      - "8080:8080"
+      - "${EVOLUTION_API_PORT:-8080}:${SERVER_PORT:-8080}"
     container_name: evolution-api
     restart: unless-stopped
     environment:
       - DATABASE_PROVIDER=postgresql
-      - DATABASE_CONNECTION_URI=postgresql://postgres:password@postgres:5432/evolution
-      - AUTHENTICATION_API_KEY=your-api-key-here
-      - SERVER_PORT=8080
+      - DATABASE_CONNECTION_URI=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@${POSTGRES_HOST:?}:${POSTGRES_DB_PORT:-5432}/${POSTGRES_DB:-evolution}
+      - AUTHENTICATION_API_KEY=${AUTHENTICATION_API_KEY:-your-api-key-here}
+      - SERVER_PORT=${SERVER_PORT:-8080}
       # Redis: por defecto la API usa localhost:6379; en Docker el host es el servicio "redis"
-      - CACHE_REDIS_ENABLED=true
+      - CACHE_REDIS_ENABLED=${CACHE_REDIS_ENABLED:-true}
       - CACHE_REDIS_URI=redis://redis:6379/0
-      - CACHE_REDIS_PREFIX_KEY=evolution
+      - CACHE_REDIS_PREFIX_KEY=${CACHE_REDIS_PREFIX_KEY:-evolution}
       # WebSocket (Socket.io): sin esto el cliente no puede usar wss://; en HTTPS configura también el proxy (Upgrade)
-      - WEBSOCKET_ENABLED=true
+      - WEBSOCKET_ENABLED=${WEBSOCKET_ENABLED:-true}
       # Por defecto la API solo permite localhost; en Docker/producción suele hacer falta ampliar (o *).
-      - WEBSOCKET_ALLOWED_HOSTS=*
+      - WEBSOCKET_ALLOWED_HOSTS=${WEBSOCKET_ALLOWED_HOSTS:-*}
     depends_on:
-      - postgres
       - redis
-    networks:
-      - evolution-network
-
-  postgres:
-    image: postgres:15-alpine
-    container_name: evolution-postgres
-    restart: unless-stopped
-    environment:
-      - POSTGRES_DB=evolution
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=password
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
     networks:
       - evolution-network
 
@@ -60,13 +44,10 @@ services:
     container_name: evolution-redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     networks:
       - evolution-network
 
 networks:
   evolution-network:
     driver: bridge
-
-volumes:
-  postgres_data:
