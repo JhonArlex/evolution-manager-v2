@@ -34,6 +34,10 @@ services:
       - WEBSOCKET_ENABLED=${WEBSOCKET_ENABLED:-true}
       # Por defecto la API solo permite localhost; en Docker/producción suele hacer falta ampliar (o *).
       - WEBSOCKET_ALLOWED_HOSTS=${WEBSOCKET_ALLOWED_HOSTS:-*}
+      # CORS: el manager (origen) debe listarse aquí; * solo en pruebas
+      - CORS_ORIGIN=${CORS_ORIGIN:-*}
+      - CORS_METHODS=${CORS_METHODS:-GET,POST,PUT,DELETE,PATCH,OPTIONS}
+      - CORS_CREDENTIALS=${CORS_CREDENTIALS:-true}
     depends_on:
       - redis
     networks:
