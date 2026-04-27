@@ -2,7 +2,7 @@
 """
 Envía el mensaje (texto + imágenes) a grupos de WhatsApp vía Evolution API.
 
-Rutas (DATA_DIR = carpeta del script /data, en Docker /app/data):
+Rutas (DATA_DIR: por defecto /app/data en contenedores con /app):
   msg.txt e imágenes: DATA_DIR/mensaje/  ó  sueltas en DATA_DIR/ (cualquiera)
   grupos: DATA_DIR/grupos_chinatowm.csv
   log:   DATA_DIR/envio_log.csv
@@ -21,7 +21,7 @@ from pathlib import Path
 #   Opción B — subcarpeta: /app/data/mensaje/msg.txt e imágenes
 #
 # Variables:
-#   DATA_DIR   — raíz de datos (defecto: <script>/data → en Docker /app/data)
+#   DATA_DIR   — raíz de datos (defecto: /app/data si existe /app, si no <script>/data)
 #   MSG_DIR    — (opcional) carpeta con msg.txt; si no se pone, se detecta automáticamente
 #   CSV_FILE   — CSV de grupos (defecto: $DATA_DIR/grupos_chinatowm.csv)
 #   LOG_FILE   — log de envíos (defecto: $DATA_DIR/envio_log.csv)
@@ -31,7 +31,10 @@ def _data_dir() -> Path:
     d = os.environ.get("DATA_DIR", "").strip()
     if d:
         return Path(d)
-    # Con el .py en /app/enviar_grupos.py → /app/data (monta el volumen ahí)
+    # En Docker/Dokploy el volumen suele ir a /app/data. No usar solo __file__/data:
+    # en cron el .py a veces está en otra ruta y el mount sigue en /app/data.
+    if Path("/app").is_dir():
+        return Path("/app/data")
     return Path(__file__).resolve().parent / "data"
 
 
@@ -68,14 +71,31 @@ def resolve_msg_dir() -> Path:
     if (DATA_DIR / "msg.txt").is_file():
         return DATA_DIR
 
+    hint_extra = _diagnostico_rutas()
     print(
         f"No hay mensaje en {nested} ni msg.txt en {DATA_DIR}.\n"
-        f"  • Monta el volumen con msg.txt (y jpg) directamente bajo: {DATA_DIR}\n"
-        f"  • O crea la subcarpeta mensaje/ y coloca ahí msg.txt e imágenes\n"
-        f"  • O define MSG_DIR con la ruta correcta",
+        f"  • En Dokploy: asigna un volumen a /app/data y sube msg.txt (y jpg) ahí, o bajo .../mensaje/\n"
+        f"  • O en el job define DATA_DIR= la ruta real donde el volumen queda montado\n"
+        f"  • O MSG_DIR= carpeta que contenga msg.txt\n{hint_extra}",
         file=sys.stderr,
     )
     sys.exit(1)
+
+
+def _diagnostico_rutas() -> str:
+    """Texto de ayuda con rutas reales (debug)."""
+    lines = [f"  (script en {Path(__file__).resolve()!s}, DATA_DIR usado: {DATA_DIR!s})"]
+    if not DATA_DIR.exists():
+        lines.append(f"  DATA_DIR no existe aún: créala o monta el volumen en esa ruta.")
+    elif DATA_DIR.is_dir():
+        try:
+            nombres = sorted(x.name for x in DATA_DIR.iterdir())[:25]
+            lines.append(
+                f"  Contenido de DATA_DIR: {nombres or '(vacía)'}" + (" …" if len(nombres) == 25 else "")
+            )
+        except OSError as e:
+            lines.append(f"  No se pudo listar DATA_DIR: {e}")
+    return "\n".join(lines)
 
 
 def cargar_grupos(desde=1):
