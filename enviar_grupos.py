@@ -172,13 +172,23 @@ def main():
         print(f"[{fila}/{fila + len(grupos) - 1}] {nombre[:55]}")
 
         try:
-            # Primera imagen con caption (texto del mensaje)
-            status, resp = enviar_imagen(gid, imagenes[0], caption=texto)
+            # Varias fotos: sin caption primero; el texto va en la última imagen
+            if len(imagenes) == 1:
+                status, resp = enviar_imagen(gid, imagenes[0], caption=texto)
+            else:
+                status, resp = enviar_imagen(gid, imagenes[0], caption="")
+                if status == 201:
+                    for img in imagenes[1:-1]:
+                        status, resp = enviar_imagen(gid, img)
+                        if status != 201:
+                            break
+                        time.sleep(2)
+                    if status == 201:
+                        status, resp = enviar_imagen(gid, imagenes[-1], caption=texto)
+                        if status == 201:
+                            time.sleep(2)
+
             if status == 201:
-                # Imágenes restantes sin caption
-                for img in imagenes[1:]:
-                    enviar_imagen(gid, img)
-                    time.sleep(2)
                 registrar_log(fila, gid, nombre, "OK")
                 print(f"  ✓ OK")
                 ok += 1
